@@ -2,69 +2,76 @@ package main
 
 import (
 	"fmt"
-	"os"
+	"github.com/gorilla/mux"
+	"html/template"
+	"log"
+	"net"
+	"net/http"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 )
 
-func usage(name string) {
-	fmt.Printf("Usage:\n\t%s dir1 dir2\n\nCompares the files that are present in dir1 and dir2\n", name)
-	os.Exit(1)
+var _ctx *Context
+var templates map[string]*template.Template
+var tLock sync.Mutex
+
+func getContext(r *http.Request) *Context {
+	return _ctx
 }
 
-func list_files(path string) map[string]bool {
-	results := make(map[string]bool)
+func GetTemplate(name string) *template.Template {
+	tLock.Lock()
+	defer tLock.Unlock()
 
-	rootLen := len(path)
-
-	filepath.Walk(path, func(curPath string, info os.FileInfo, err error) error {
-		if err != nil {
-			fmt.Printf("Unable to process %s", curPath)
-			os.Exit(1)
-		}
-		relPath := curPath
-		if strings.HasPrefix(curPath, path) {
-			relPath = curPath[rootLen:]
-		}
-		results[relPath] = true
-		return nil
-	})
-	return results
+	return templates[name]
 }
 
-func process_diffs(root1 string, set1 map[string]bool, set2 map[string]bool) int {
-	changes := 0
+func LoadTemplates() {
+	tLock.Lock()
+	defer tLock.Unlock()
 
-	printed_header := false
-	for entry, _ := range set1 {
-		_, exists := set2[entry]
-		if !exists {
-			if !printed_header {
-				fmt.Println("\nOnly in", root1)
-				printed_header = true
-			}
-			fmt.Println(entry)
-			changes++
-		}
+	templates = make(map[string]*template.Template)
+
+	fnames, err := filepath.Glob("templates/*html")
+	if err != nil {
+		log.Fatalln("Unable to load templates", err)
 	}
-	return changes
+	for _, fname := range fnames {
+		t := template.Must(template.ParseFiles(fname))
+		tname := strings.ToLower(filepath.Base(fname))
+		if strings.HasSuffix(tname, ".html") {
+			tname = tname[0 : len(tname)-5]
+		}
+		fmt.Println("Adding template", tname)
+		templates[tname] = t
+	}
+
 }
 
 func main() {
-	var count int
-	if len(os.Args) != 3 {
-		usage(os.Args[0])
-	}
-	if os.Args[1] != os.Args[2] {
-		l1 := list_files(os.Args[1])
-		l2 := list_files(os.Args[2])
+	LoadTemplates()
 
-		count = process_diffs(os.Args[1], l1, l2)
-		count = count + process_diffs(os.Args[2], l2, l1)
+	runtime.GOMAXPROCS(4)
+
+	_ctx = newContext()
+	m := mux.NewRouter()
+	m.Handle("/", IndexHandler())
+	m.Handle("/api/roots", RootHandler()).Methods("GET")
+	m.Handle("/api/roots", ShowIndex(AddRootHandler())).Methods("POST")
+	m.Handle("/api/roots/del", ShowIndex(DelRootHandler())).Methods("POST")
+	m.Handle("/api/file/view", ViewImageHandler()).Methods("POST")
+	m.Handle("/api/file/rename", ShowIndex(RenameFileHandler())).Methods("POST")
+	m.Handle("/static/{fname:[a-z0-9\\-_\\.]+}", StaticHandler("static")).Methods("GET")
+	server := http.Server{Handler: m}
+	listener, err := net.Listen("tcp4", "localhost:0")
+	if err != nil {
+		log.Fatalln("Unable to open local socket,", err)
 	}
-	if count == 0 {
-		fmt.Println("There were no differences")
-	} else {
-		fmt.Println("\nThere were", count, "differences")
+	fmt.Println("Listening on", listener.Addr().String(), "starting browser")
+	go LaunchBrowser(listener.Addr().String())
+	if err = server.Serve(listener); err != nil {
+		log.Fatalln("Unable to setup local server,", err)
 	}
 }

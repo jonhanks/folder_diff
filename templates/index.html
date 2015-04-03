@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<title>Folder Diff Stuff</title>
+	<style>
+		body {
+			background-color: #ffffff;
+		}
+
+		.box {
+			padding: .5cm;
+			border-style: solid;
+			border-width: 1px;
+			border-color: black;
+		}
+		.inline {
+			display: inline;
+		}
+		.stripe1 {
+			background-color: #ffffff;
+		}
+		.stripe2 {
+			background-color: #dddddd;
+		}
+	</style>
+	<script src="/static/jquery-2.1.3.min.js"></script>
+</head>
+<body>
+	{{ $ctx := . }}
+	<h1>Folder comparision</h1>
+	<div class="box">
+		<h2>Folder Roots</h2>
+		<ol>{{ range .Roots }}
+			<li>
+				{{.}}
+				<form action="api/roots/del" method="POST" class="inline">
+					<input type="hidden" name="Root" value="{{.}}" />
+					<input type="submit" value="Remove" />
+				</form>
+			</li>{{ end }}
+		</ol>
+		<form action="api/roots" method="POST">
+			<input type="text" name="Root" />
+			<input type="submit" value="Add Folder" />
+		</form>
+	</div>
+	<div class="box">
+		<ul>
+			<li><a href="#master_file_list">Full files list</a></li>
+			{{ range .Roots }}
+			<li><a href="#files_{{.}}">Files in {{.}}</a></li>
+			{{ end }}
+			{{ range .Roots }}
+			<li><a href="#missing_{{.}}">Files missing from {{.}}</a></li>
+			{{ end }}
+		</ul>
+	</div>
+	<div class="box">
+		<a id="master_file_list" />
+		<h2>All files under any root folder</h2>
+		<ul>{{ range .AllFiles }}
+			<li>
+				{{ . }}
+			</li>
+		{{ end }}</ul>
+	</div>
+
+	{{ $Roots := .Roots }}
+	{{ range $index, $element := .FileList }}
+	<div class="box">
+		<a id="files_{{ index $Roots $index }}" />
+		<h2>Files in {{ index $Roots $index }}</h2>
+		{{ $cur_num := $ctx.Number }}
+		<input type="button" value="Rename Entries" onclick="bulk_rename({{ $cur_num }}+1, {{ $cur_num }}+1+{{ len . }}, '{{ index $Roots $index }}')">
+		<table>
+		{{ range . }}{{ $cur_num := $ctx.Number }}
+			<tr class="{{ if $ctx.Odd $cur_num }}stripe1{{ else }}stripe2{{ end }}">
+				<td>{{ . }}<input type="hidden" id="entry_name_{{ $cur_num }}" value="{{ . }}" /></td>				
+				<td><input type="text" id="entry_rename_{{ $cur_num }}" value="" /></td>
+				<td>
+					<form action="/api/file/view" method="POST" class="inline" id="frm_{{ $cur_num }}">
+						<input type="hidden" name="Root" value="{{ index $Roots $index }}" />
+						<input type="hidden" name="Path" value="{{.}}" />
+						<input type="button" value="View" onclick="view_image('#frm_{{ $cur_num }}')" />
+					</form>
+				</td>
+			</tr>
+		{{ else }}
+			<tr><td>None</td></tr>
+		{{ end }}
+		</table>
+	</div>
+	{{ end }}
+
+	{{ range $index, $element := .MissingFiles }}
+	<div class="box">
+		<a id="missing_{{ index $Roots $index }}" />
+		<h2>Files missing from {{ index $Roots $index }}</h2>
+		<ul>
+		{{ range . }}
+			<li>
+			{{ . }}
+			</li>
+		{{ else }}
+			<li>None</li>
+		{{ end }}
+		</ul>
+	</div>
+	{{ end }}
+	<script>
+		function view_image(frm_id) {
+			$.ajax({
+				type: "POST",
+				url: "/api/file/view",
+				data: $(frm_id).serialize()
+			})
+		}
+
+		function bulk_rename(start, end, root) {
+			var obj = new Object();
+			obj.Action = "Rename";
+			obj.Requests = new Array();
+			for (i = start; i < end; i++) {
+				var target = $('#entry_rename_'+i).val();
+				if (target != "") {
+					var name = $('#entry_name_'+i).val();
+					var entry = new Object();
+					entry.Root = root;
+					entry.Name = name;
+					entry.Target = target
+					obj.Requests.push(entry)
+				}
+			}
+			$.ajax({
+				type: "POST",
+				url: "/api/file/rename",
+				data: JSON.stringify(obj),
+				contentType: "text/json",
+				processData: false
+			})
+		}
+	</script>
+</body>
+</html>

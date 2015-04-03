@@ -22,3 +22,9 @@ _testmain.go
 *.exe
 *.test
 *.prof
+
+folder_diff
+config.json
+
+*.sublime-project
+*.sublime-workspace
